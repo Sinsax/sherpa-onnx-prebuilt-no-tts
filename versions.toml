@@ -1,0 +1,55 @@
+# 上游版本 → 归档契约。
+# 升级上游时：version / commit 以及 [archive] 的 name / top_dir 必须一起改，
+# 且 name 里嵌的版本号必须与消费方 Cargo.toml 中 sherpa-onnx = "x.y.z" 完全一致。
+#
+# 注意本文件用 UTF-8 保存，脚本读取时必须带 -Encoding UTF8
+# （PowerShell 5.1 默认按 GBK 解码会吃掉换行，见 scripts/common.ps1 的说明）。
+
+[upstream]
+version    = "1.13.3"
+commit     = "330609dab49be6ee8b30702918ca7abbbad1286a"
+repo       = "https://github.com/k2-fsa/sherpa-onnx.git"
+target     = "win-x64"
+build_type = "Release"
+crt        = "MT"      # SHERPA_ONNX_USE_STATIC_CRT=ON
+link       = "static"  # BUILD_SHARED_LIBS=OFF
+
+[archive]
+# 消费方（官方 sherpa-onnx-sys crate）在 build.rs 里写死了它要取的文件名：
+#   windows + x86_64 + static -> sherpa-onnx-v<version>-win-x64-static-MT-Release-lib.tar.bz2
+# 上游同版本另有一个 ...-static-MT-Release-no-tts-lib.tar.bz2，
+# 但 crate 不认识那个名字，所以本仓把 TTS-off 的产物发到这个「带 TTS」的名字上，
+# 做一个 drop-in 顶替。
+name    = "sherpa-onnx-v1.13.3-win-x64-static-MT-Release-lib.tar.bz2"
+# top_dir 必须恰好等于 name 去掉 .tar.bz2，归档内部结构是 <top_dir>/lib/*.lib
+top_dir = "sherpa-onnx-v1.13.3-win-x64-static-MT-Release-lib"
+
+# 与 sherpa-onnx-sys/build.rs 顶部 SHERPA_ONNX_STATIC_LIBS 逐字符一致（13 项）。
+# 链接不是 whole-archive，而是逐个 rustc-link-lib=static=<name>：
+#   文件不存在 -> 链接失败；存在但没有符号被引用 -> 链接器不会取用。
+# 因此 TTS 关闭后不再产出的库名，用空库占位即可（见 scripts/make-empty-lib.ps1）。
+[expected_libs]
+list = [
+    "sherpa-onnx-c-api",
+    "sherpa-onnx-core",
+    "kaldi-decoder-core",
+    "sherpa-onnx-kaldifst-core",
+    "sherpa-onnx-fstfar",
+    "sherpa-onnx-fst",
+    "kaldi-native-fbank-core",
+    "kissfft-float",
+    "piper_phonemize",
+    "espeak-ng",
+    "ucd",
+    "onnxruntime",
+    "ssentencepiece_core",
+]
+
+# 链接清单里唯一「不属于上游源码树、由 CMake 单独下载」的那一个。
+# CMake 会在 CMAKE_BINARY_DIR 等位置找同名文件，先放进去就能跳过它的下载，
+# 而且我们能先校验 sha256。
+[prebuilt_deps.onnxruntime]
+version  = "1.24.4"
+filename = "onnxruntime-win-x64-static_lib-MT-Release-1.24.4.tar.bz2"
+url      = "https://github.com/csukuangfj/onnxruntime-libs/releases/download/v1.24.4/onnxruntime-win-x64-static_lib-MT-Release-1.24.4.tar.bz2"
+sha256   = "abe61a1a6094c6ed69ae1c81a3acf6dfa65d6ee2ef5b4a73a55660a6f6072ecc"

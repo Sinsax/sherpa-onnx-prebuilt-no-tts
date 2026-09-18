@@ -1,0 +1,5 @@
+# 构建工作区与产出。归档约 106 MB，一律走 Release 资产，绝不进 git。
+build/
+dist/
+*.tar.bz2
+*.tar

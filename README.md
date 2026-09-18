@@ -39,7 +39,9 @@ option(SHERPA_ONNX_ENABLE_TTS "Whether to build TTS related code" ON)   # 默认
 | 目录结构 | `<顶层>/lib/*.lib` |
 | 内部文件数 | 14（13 项链接清单 + `sherpa-onnx-cxx-api.lib`） |
 
-归档名里的版本号必须与消费方 `Cargo.toml` 里 `sherpa-onnx = "x.y.z"` 完全一致。
+归档名里的版本号来自 **`sherpa-onnx-sys`** 的 `CARGO_PKG_VERSION`（不是
+`sherpa-onnx` 的）。两者通常同号，但 `sherpa-onnx` 对 sys 用的是插入符依赖，
+所以 cargo 有可能把 sys 解析到更新的 1.13.x —— 详见第 3 节的处置。
 
 链接清单写死在 `sherpa-onnx-sys/build.rs` 顶部，共 **13 项**：
 
@@ -229,7 +231,7 @@ espeak-ng      espeak ng      espeak_      libespeak      piper_phonemize
 | 上游 | sherpa-onnx v1.13.3，commit `330609dab49be6ee8b30702918ca7abbbad1286a` |
 | onnxruntime | 1.24.4，静态 CRT /MT，sha256 `abe61a1a6094c6ed69ae1c81a3acf6dfa65d6ee2ef5b4a73a55660a6f6072ecc` |
 | 构建产出 | 11 个 `.lib`，补 3 个空库后共 14 个 |
-| 归档 | 106.3 MB；sha256 见 `checksums/v1.13.3.txt` |
+| 归档 | 106.3 MiB（111,446,628 字节）；sha256 见 `checksums/v1.13.3.txt` |
 | `sherpa-onnx-core.lib` | 本仓 51.0 MB（官方 66.0 MB） |
 
 ### 与上游 TTS-off 构建的对照

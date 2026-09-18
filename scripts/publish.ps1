@@ -74,7 +74,8 @@ variant:    TTS disabled, SHERPA_ONNX_ENABLE_TTS=OFF
 toolchain:  MSVC, static CRT /MT (SHERPA_ONNX_USE_STATIC_CRT=ON)
 build:      static (BUILD_SHARED_LIBS=OFF), Release, win-x64
 built_on:   $builtOn
-gate:       espeak 内容命中 0；13 项链接清单全覆盖
+gate:       espeak-ng/piper 特有标记命中 0（裸子串 espeak 会误命中 OfflineSpeaker）
+gate:       13 项链接清单全覆盖；文件名与顶层目录名符合 crate 契约
 "@ | Set-Content -Path $checksumPath -Encoding UTF8
 
 Write-Host "== checksums 已写入: $checksumPath" -ForegroundColor Green

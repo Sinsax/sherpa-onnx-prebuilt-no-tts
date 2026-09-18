@@ -219,5 +219,30 @@ espeak-ng      espeak ng      espeak_      libespeak      piper_phonemize
 | 上游 | sherpa-onnx v1.13.3，commit `330609dab49be6ee8b30702918ca7abbbad1286a` |
 | onnxruntime | 1.24.4，静态 CRT /MT，sha256 `abe61a1a6094c6ed69ae1c81a3acf6dfa65d6ee2ef5b4a73a55660a6f6072ecc` |
 | 构建产出 | 11 个 `.lib`，补 3 个空库后共 14 个 |
+| 归档 | 106.3 MB；sha256 见 `checksums/v1.13.3.txt` |
 | `sherpa-onnx-core.lib` | 本仓 51.0 MB（官方 66.0 MB） |
-| espeak-ng 特有标记 | 本仓 0；官方带 TTS 归档仅 core/c-api/cxx-api 之外的部分就有 534 + 50 + 6 处 |
+
+### 与上游 TTS-off 构建的对照
+
+上游自己发布的 `...-no-tts-lib.tar.bz2` 也是 **11 个库**，缺的正是
+`espeak-ng` / `piper_phonemize` / `ucd`，各库体积与本仓构建几乎逐字节一致
+（如 `sherpa-onnx-core.lib`：上游 51,009,826 B vs 本仓 51,008,780 B）。
+两者的 espeak 标记画像也完全相同（`c-api` 裸 170 / 特有 0，`core` 裸 1451 / 特有 0，
+`cxx-api` 裸 238 / 特有 0）。
+
+**注意**：上游那个 no-tts 归档缺这 3 个库文件，直接拿来顶替会让下游**链接失败**，
+而且它的文件名也不在 crate 的期望之列。所以本仓的「补空库 + 顶替文件名」两步都是必要的。
+
+### 端到端 A/B（同一份消费方代码，只换归档）
+
+消费方只调用 ASR 路径（`OfflineRecognizer::create` / `VoiceActivityDetector::create`），
+经 `SHERPA_ONNX_ARCHIVE_DIR` 消费归档，构建 debug 二进制后扫描：
+
+| 归档 | 二进制里裸 `espeak` | espeak-ng 特有标记 |
+|---|---|---|
+| 官方 `...-lib.tar.bz2`（带 TTS） | 65 | `espeak-ng`=7, `espeak ng`=2, `espeak_`=51 |
+| 本仓 `...-lib.tar.bz2`（TTS-off） | **0** | **0** |
+
+官方那一列的 65 处裸命中，与本文档原始调研中「下游二进制命中 67 处」的量级一致。
+两根轴都归零，说明 espeak-ng 确实没有被链接进产物 —— 而且二进制能正常运行
+（会按预期报出模型配置缺失的运行时错误，证明链接进来的是可执行的真实代码）。

@@ -4,6 +4,10 @@
 本仓只做一件事：把上游 sherpa-onnx 编成 **TTS 关闭**的 win-x64 静态库，打包成
 **文件名与官方完全一致**的归档，供下游不修改代码直接顶替使用。
 
+本仓自身以 **Apache-2.0** 发布（见 [LICENSE](LICENSE)）。但归档是上游代码的二进制再分发，
+其内含组件的许可义务由分发方履行 —— 组件清单与需随附的声明全文见
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)。
+
 ---
 
 ## 1. 为什么需要它
@@ -258,3 +262,26 @@ espeak-ng      espeak ng      espeak_      libespeak      piper_phonemize
 官方那一列的 65 处裸命中，与本文档原始调研中「下游二进制命中 67 处」的量级一致。
 两根轴都归零，说明 espeak-ng 确实没有被链接进产物 —— 而且二进制能正常运行
 （会按预期报出模型配置缺失的运行时错误，证明链接进来的是可执行的真实代码）。
+
+---
+
+## 9. 许可
+
+- **本仓自身**：Apache-2.0，见 [LICENSE](LICENSE)。选它是因为它与归档内每个组件都兼容，
+  且其归属机制正好承载再分发所需的声明义务。
+- **归档**：是上游代码的**二进制再分发**，义务由被编译进去的组件决定，不由本仓声明的协议决定。
+  完整组件清单（含版本与来源）与需随附的许可声明全文见
+  [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)。
+
+实测本次构建编译进去的组件许可构成：Apache-2.0（sherpa-onnx、openfst、kaldi-*、
+kaldifst、simple-sentencepiece）、MIT（ONNX Runtime、nlohmann/json）、BSD-3-Clause
+（kissfft、websocketpp）、BSD-2-Clause（fastcluster）、Boost-1.0（Asio）、
+MPL-2.0（Eigen）。**没有任何 GPL / LGPL / AGPL。**
+
+唯一带「提供源码」义务的是 **Eigen 的 MPL-2.0**，而它要求提供的是 **Eigen 自己的源码**
+（公开可得），不是你的项目源码；MPL-2.0 §3.3 也明确允许把它作为 Larger Work 以不同条款分发。
+也就是说，**消费方可以据此闭源发布自己的二进制**。
+
+⚠️ 反过来说：一旦把 espeak-ng 加回来（改用官方归档、或 TTS=ON 构建），
+**GPL-3.0-or-later 的义务会立刻回来**，整份声明都要重做。这就是第 3 节那个
+「构建后必须断言」的意义。

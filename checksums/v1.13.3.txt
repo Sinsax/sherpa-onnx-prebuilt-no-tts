@@ -1,0 +1,11 @@
+﻿# sherpa-onnx-prebuilt-no-tts
+# 这份库与 k2-fsa / 上游官方发布无隶属关系（unofficial build）。
+archive:    sherpa-onnx-v1.13.3-win-x64-static-MT-Release-lib.tar.bz2
+sha256:     94d733a9cda2d959b1f924d75f771154a5acc4c8241b4393967afdb725e23b1f
+size:       111446628
+upstream:   v1.13.3 (330609dab49be6ee8b30702918ca7abbbad1286a)
+variant:    TTS disabled, SHERPA_ONNX_ENABLE_TTS=OFF
+toolchain:  MSVC, static CRT /MT (SHERPA_ONNX_USE_STATIC_CRT=ON)
+build:      static (BUILD_SHARED_LIBS=OFF), Release, win-x64
+built_on:   2026-09-17T16:37:30Z
+gate:       espeak 内容命中 0；13 项链接清单全覆盖

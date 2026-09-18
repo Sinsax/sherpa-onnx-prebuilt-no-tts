@@ -41,11 +41,8 @@ $ErrorActionPreference = "Stop"
 
 $RepoRoot = Get-RepoRoot $PSScriptRoot
 
-$TarExe    = Get-TarExe
+$TarExe   = Get-TarExe
 $Bzip2Exe = Get-Bzip2Exe
-
-# espeak-ng / piper 特有标记。裸 "espeak" 不在此列，理由见文件头。
-$ForbiddenMarkers = @("espeak-ng", "espeak ng", "espeak_", "libespeak", "piper_phonemize")
 
 $v = Read-VersionsToml (Join-Path $RepoRoot "versions.toml")
 $expectedLibs = Get-ExpectedLibs -RepoRoot $RepoRoot -Versions $v
@@ -54,92 +51,7 @@ $expectedName = $v["archive.name"]
 if (-not $expectedTop)  { throw "versions.toml 里没读到 [archive] top_dir" }
 if (-not $expectedName) { throw "versions.toml 里没读到 [archive] name" }
 
-# 大小写不敏感的 ASCII 子串计数（字节层面）。
-# onnxruntime.lib 单个就 ~800 MB，纯 PowerShell 逐字节循环太慢，
-# 这里内联一段 C# 编译成原生速度的分块扫描器。
-Add-Type -TypeDefinition @"
-using System;
-using System.IO;
-using System.Text;
-
-public static class LibScanner
-{
-    // 返回 needle 在文件中出现的次数；needle 按大小写不敏感做 ASCII 比较。
-    public static long CountAsciiIgnoreCase(string path, string needle)
-    {
-        byte[] pat = new byte[needle.Length];
-        for (int i = 0; i < needle.Length; i++)
-        {
-            byte b = (byte)needle[i];
-            if (b >= 65 && b <= 90) b = (byte)(b + 32);
-            pat[i] = b;
-        }
-
-        int n = pat.Length;
-        if (n == 0) return 0;
-
-        const int Chunk = 1 << 20;
-        byte[] buf = new byte[Chunk + n];
-        int carry = 0;
-        long count = 0;
-
-        using (FileStream fs = File.OpenRead(path))
-        {
-            while (true)
-            {
-                int read = fs.Read(buf, carry, Chunk);
-                if (read <= 0) break;
-
-                int len = carry + read;
-                int limit = len - n;
-
-                for (int i = 0; i <= limit; i++)
-                {
-                    bool hit = true;
-                    for (int j = 0; j < n; j++)
-                    {
-                        byte b = buf[i + j];
-                        if (b >= 65 && b <= 90) b = (byte)(b + 32);
-                        if (b != pat[j]) { hit = false; break; }
-                    }
-                    if (hit) { count++; i += n - 1; }
-                }
-
-                // 末尾 n-1 字节留到下一块，避免漏掉跨块匹配
-                carry = n - 1;
-                if (carry > len) carry = len;
-                Buffer.BlockCopy(buf, len - carry, buf, 0, carry);
-            }
-        }
-
-        return count;
-    }
-
-    // 自检：确保扫描器本身能命中。整个门禁都压在这个函数上，
-    // 万一它永远返回 0，门禁就成了摆设。
-    public static bool SelfTest()
-    {
-        string tmp = Path.GetTempFileName();
-        try
-        {
-            using (FileStream fs = File.Create(tmp))
-            {
-                byte[] payload = Encoding.ASCII.GetBytes("xxx eSpeak NG xxx ESpeak_Initialize xxx");
-                fs.Write(payload, 0, payload.Length);
-            }
-            bool a = CountAsciiIgnoreCase(tmp, "espeak ng") == 1;
-            bool b = CountAsciiIgnoreCase(tmp, "espeak_") == 1;
-            bool c = CountAsciiIgnoreCase(tmp, "no-such-marker") == 0;
-            return a && b && c;
-        }
-        finally { File.Delete(tmp); }
-    }
-}
-"@ -ErrorAction Stop
-
-if (-not [LibScanner]::SelfTest()) {
-  throw "扫描器自检失败 —— 门禁结果不可信，终止。"
-}
+Initialize-ArtifactScanner
 
 $Archive = (Resolve-Path -Path $Archive).Path
 if (-not (Test-Path $Archive)) { throw "归档不存在: $Archive" }
@@ -184,11 +96,9 @@ try {
     $rawTotal = 0
 
     foreach ($l in $libs) {
-      $rawTotal += [LibScanner]::CountAsciiIgnoreCase($l.FullName, "espeak")
-      foreach ($m in $ForbiddenMarkers) {
-        $c = [LibScanner]::CountAsciiIgnoreCase($l.FullName, $m)
-        if ($c -gt 0) { $offenders += "$($l.Name): $m x$c" }
-      }
+      $r = Get-EspeakNgMarkerHits -Path $l.FullName
+      $rawTotal += $r.Raw
+      foreach ($o in $r.Offenders) { $offenders += "$($l.Name): $o" }
     }
 
     if ($offenders.Count -gt 0) {

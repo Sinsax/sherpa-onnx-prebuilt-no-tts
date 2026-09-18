@@ -76,8 +76,17 @@ cargo build --release
 export SHERPA_ONNX_LIB_DIR=/path/to/extracted/lib
 ```
 
-⚠️ **构建后务必断言产物里没有 espeak-ng**（第 5 节给了判据）。这一条是防
-「忘了设环境变量、静默回退官方归档」的唯一保险 —— 那种失败**不会有任何报错**。
+⚠️ **构建后务必断言产物里没有 espeak-ng**。这一条是防「忘了设环境变量、
+静默回退官方归档」的唯一保险 —— 那种失败**不会有任何报错**。本仓给了现成的扫描器：
+
+```powershell
+# 单个文件，或整个输出目录（递归扫 exe/dll/lib/a/so/dylib）
+powershell -File scripts\scan-artifact.ps1 -Path target\release
+# 退出码 0 = 干净；1 = 检出 espeak-ng
+```
+
+扫的是 espeak-ng 的**特有标记**而非裸子串 `espeak`，理由见第 5 节 —— 用裸子串会把
+正确的 ASR-only 产物误判为含 GPL 代码。
 
 ### 消费方必须把 sherpa-onnx-sys 钉在与本仓相同的版本
 
@@ -121,6 +130,7 @@ powershell -ExecutionPolicy Bypass -File scripts\build.ps1 -SkipBuild
 | `scripts/build.ps1` | 全流程构建 |
 | `scripts/make-empty-lib.ps1` | 造空库占位 |
 | `scripts/verify-archive.ps1` | 发布门禁 |
+| `scripts/scan-artifact.ps1` | 扫任意产物断言无 espeak-ng（**给消费方用的**） |
 | `scripts/publish.ps1` | 门禁 → 写 checksums → 打 tag → 上传 Release |
 
 `build.ps1` 有三处硬性校验，任一不过就停：配置后立刻查 `CMakeCache.txt` 确认

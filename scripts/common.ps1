@@ -216,3 +216,127 @@ function Read-CMakeArgsFile {
 
   return @{ Generator = $generator; Platform = $platform; Args = $args }
 }
+
+# ---------------------------------------------------------------- 产物扫描器
+#
+# 判据是 espeak-ng / piper 的「特有标记」，不是裸子串 "espeak"。
+# 原因：sherpa-onnx 的说话人分离代码里有 OfflineSpeaker* 这个类名，
+# "OfflineSpeaker" 恰好含子串 "eSpeaker"，大小写不敏感搜 "espeak" 会命中它。
+# 实测：官方带 TTS 归档与本仓 TTS-off 归档的 c-api/cxx-api 裸命中数完全相同
+# （170 / 238）且特有标记都是 0，全部是这类巧合。用裸子串会误杀正确产物。
+$EspeakNgMarkers = @("espeak-ng", "espeak ng", "espeak_", "libespeak", "piper_phonemize")
+
+function Initialize-ArtifactScanner {
+  <#
+    内联一段 C# 编译成原生速度的分块扫描器。
+    纯 PowerShell 逐字节循环扫 800 MB 的 onnxruntime.lib 太慢。
+    用类型存在性做守卫：同一进程里被多次 dot-source 时不会重复 Add-Type。
+  #>
+  if ("ArtifactScanner" -as [type]) { return }
+
+  Add-Type -TypeDefinition @"
+using System;
+using System.IO;
+using System.Text;
+
+public static class ArtifactScanner
+{
+    // needle 按大小写不敏感做 ASCII 比较，返回出现次数。
+    public static long CountAsciiIgnoreCase(string path, string needle)
+    {
+        byte[] pat = new byte[needle.Length];
+        for (int i = 0; i < needle.Length; i++)
+        {
+            byte b = (byte)needle[i];
+            if (b >= 65 && b <= 90) b = (byte)(b + 32);
+            pat[i] = b;
+        }
+
+        int n = pat.Length;
+        if (n == 0) return 0;
+
+        const int Chunk = 1 << 20;
+        byte[] buf = new byte[Chunk + n];
+        int carry = 0;
+        long count = 0;
+
+        using (FileStream fs = File.OpenRead(path))
+        {
+            while (true)
+            {
+                int read = fs.Read(buf, carry, Chunk);
+                if (read <= 0) break;
+
+                int len = carry + read;
+                int limit = len - n;
+
+                for (int i = 0; i <= limit; i++)
+                {
+                    bool hit = true;
+                    for (int j = 0; j < n; j++)
+                    {
+                        byte b = buf[i + j];
+                        if (b >= 65 && b <= 90) b = (byte)(b + 32);
+                        if (b != pat[j]) { hit = false; break; }
+                    }
+                    if (hit) { count++; i += n - 1; }
+                }
+
+                // 末尾 n-1 字节留到下一块，避免漏掉跨块匹配
+                carry = n - 1;
+                if (carry > len) carry = len;
+                Buffer.BlockCopy(buf, len - carry, buf, 0, carry);
+            }
+        }
+
+        return count;
+    }
+
+    // 自检：整个门禁都压在这个函数上，万一它永远返回 0 就成了摆设。
+    public static bool SelfTest()
+    {
+        string tmp = Path.GetTempFileName();
+        try
+        {
+            using (FileStream fs = File.Create(tmp))
+            {
+                byte[] payload = Encoding.ASCII.GetBytes("xxx eSpeak NG xxx ESpeak_Initialize xxx");
+                fs.Write(payload, 0, payload.Length);
+            }
+            bool a = CountAsciiIgnoreCase(tmp, "espeak ng") == 1;
+            bool b = CountAsciiIgnoreCase(tmp, "espeak_") == 1;
+            bool c = CountAsciiIgnoreCase(tmp, "no-such-marker") == 0;
+            return a && b && c;
+        }
+        finally { File.Delete(tmp); }
+    }
+}
+"@ -ErrorAction Stop
+
+  if (-not [ArtifactScanner]::SelfTest()) {
+    throw "扫描器自检失败 —— 结果不可信，终止。"
+  }
+}
+
+function Get-EspeakNgMarkerHits {
+  <#
+    扫一个文件，返回 @{ Raw=裸espeak次数; Markers=@{标记=次数} ; Offenders=@("标记 x次数") }
+  #>
+  param(
+    [Parameter(Mandatory = $true)][string]$Path,
+    [string[]]$Markers = $EspeakNgMarkers
+  )
+
+  $hits = @{}
+  $offenders = @()
+  foreach ($m in $Markers) {
+    $c = [ArtifactScanner]::CountAsciiIgnoreCase($Path, $m)
+    if ($c -gt 0) { $hits[$m] = $c; $offenders += "$m x$c" }
+  }
+
+  return @{
+    Raw       = [ArtifactScanner]::CountAsciiIgnoreCase($Path, "espeak")
+    Markers   = $hits
+    Offenders = $offenders
+  }
+}

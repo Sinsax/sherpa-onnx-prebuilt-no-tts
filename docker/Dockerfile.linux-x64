@@ -1,0 +1,56 @@
+# syntax=docker/dockerfile:1
+#
+# sherpa-onnx-prebuilt-no-tts —— linux-x64 发布口径的构建环境。
+#
+# 为什么需要一层自有镜像，而不是直接用宿主工具链：
+#   归档是发给别的项目**链接**的静态库，glibc 基线决定它能用在哪些发行版上。
+#   在滚更发行版（Arch 等）上直编，.o 里会带上只有新 glibc 才有的符号引用
+#   （例如 glibc 2.38 的 __isoc23_strtol），下游在 Ubuntu 22.04 / Debian 12
+#   这类机器上链接就直接失败。所以发布归档必须在固定基线的容器里编。
+#
+# 基线的选择：
+#   上游自己的 linux-x64 发布用 manylinux2014（glibc 2.17）+ devtoolset-11（GCC 11）。
+#   本镜像用 ubuntu:22.04（glibc 2.35）+ jammy 的 GCC 11 —— 编译器与上游同代，
+#   只是 glibc 基线比 manylinux2014 新。要复刻上游更宽的兼容面，把 BASE 换成
+#   quay.io/pypa/manylinux2014_x86_64 即可（那是 manylinux 镜像，包管理是 yum，
+#   需要另写一份 Dockerfile）。
+#
+# BASE 固定到 manifest digest：tag 会漂移，digest 不会。
+ARG BASE=ubuntu:22.04@sha256:b8b6ee6aa931ecd9d0d952abc34dc0e5f7c6a30c6bb71b079fe399fde0329c02
+
+FROM ${BASE}
+
+# 有些网络到 archive.ubuntu.com 不通，构建时可以用
+#   --build-arg UBUNTU_MIRROR=mirrors.tuna.tsinghua.edu.cn
+# 指到镜像站；默认留空 = 用官方源。
+#
+# 用 http 而不是 https：ubuntu:22.04 基础镜像里没有 ca-certificates，
+# 先走 https 会得到 "No system certificates available"。
+# 这与 Ubuntu 默认 sources.list 的做法一致 —— 包本身仍由 apt 的
+# Release 签名（ubuntu-keyring）校验，不靠 TLS。
+ARG UBUNTU_MIRROR=
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN if [ -n "${UBUNTU_MIRROR}" ]; then \
+      sed -i \
+        -e "s|http://archive.ubuntu.com/ubuntu|http://${UBUNTU_MIRROR}/ubuntu|g" \
+        -e "s|http://security.ubuntu.com/ubuntu|http://${UBUNTU_MIRROR}/ubuntu|g" \
+        /etc/apt/sources.list; \
+    fi \
+ && apt-get update \
+ && apt-get install -y --no-install-recommends \
+      build-essential \
+      cmake \
+      git \
+      curl \
+      ca-certificates \
+      bzip2 \
+ && rm -rf /var/lib/apt/lists/*
+
+# 自检：镜像里必须同时有 gcc / g++ / cmake，且版本够编 sherpa-onnx（CMake >= 3.15，C++17）
+RUN set -eux; \
+    gcc --version | head -1; \
+    g++ --version | head -1; \
+    cmake --version | head -1; \
+    ldd --version | head -1

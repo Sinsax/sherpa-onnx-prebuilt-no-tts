@@ -53,3 +53,45 @@ version  = "1.24.4"
 filename = "onnxruntime-win-x64-static_lib-MT-Release-1.24.4.tar.bz2"
 url      = "https://github.com/csukuangfj/onnxruntime-libs/releases/download/v1.24.4/onnxruntime-win-x64-static_lib-MT-Release-1.24.4.tar.bz2"
 sha256   = "abe61a1a6094c6ed69ae1c81a3acf6dfa65d6ee2ef5b4a73a55660a6f6072ecc"
+
+# ===========================================================================
+# linux-x64 目标
+#
+# 两个目标、两套脚本、互不干扰：
+#   win-x64   -> scripts/*.ps1，契约是上面的 [archive] / [prebuilt_deps.onnxruntime]
+#   linux-x64 -> scripts/*.sh ，契约是下面的 [targets.linux-x64] / [prebuilt_deps.onnxruntime-linux-x64]
+# 两边都是消费方 sherpa-onnx-sys/build.rs 里 archive_name() 的输出，逐字符一致。
+# ===========================================================================
+
+[targets.linux-x64]
+# crate 对 (LinkMode::Static, "linux", "x86_64") 拼出的名字：
+#   sherpa-onnx-v<version>-linux-x64-static-lib.tar.bz2
+# 上游同版本另有一个 ...-linux-x64-static-no-tts-lib.tar.bz2（它自己 TTS-off 的产物），
+# 但 crate 不认识那个名字，而且它同样缺 espeak-ng / piper_phonemize / ucd 三个库文件，
+# 直接顶替会让下游链接失败。所以本仓把 TTS-off 产物发到这个「带 TTS」的名字上。
+target     = "linux-x64"
+name       = "sherpa-onnx-v1.13.3-linux-x64-static-lib.tar.bz2"
+# top_dir 必须恰好等于 name 去掉 .tar.bz2，归档内部结构是 <top_dir>/lib/*.a
+top_dir    = "sherpa-onnx-v1.13.3-linux-x64-static-lib"
+build_type = "Release"
+link       = "static"   # BUILD_SHARED_LIBS=OFF
+# Linux 上没有 /MT 这一说：SHERPA_ONNX_USE_STATIC_CRT 上游注明 "For Windows only"。
+
+# 发布的归档必须在固定 glibc 基线的容器里编，不能用宿主工具链：
+# 滚更发行版上直编会引入新的 GLIBC 符号引用（如 glibc 2.38 的 __isoc23_strtol），
+# 下游在 Ubuntu 22.04 / Debian 12 这类机器上链接就失败。
+# 镜像定义：docker/Dockerfile.linux-x64（ubuntu:22.04 + GCC 11 → glibc 2.35 基线）。
+# 上游自己的发布口径是 manylinux2014（glibc 2.17）+ devtoolset-11（GCC 11）；
+# 想复刻那个更宽的兼容面，用 SHERPA_ONNX_BUILDER_IMAGE 指到 manylinux 镜像即可，
+# 不必改本文件。
+builder_image      = "sherpa-onnx-prebuilt-no-tts/linux-x64-builder:ubuntu22.04"
+builder_dockerfile = "docker/Dockerfile.linux-x64"
+
+# 与 win-x64 的同名依赖是两份不同的包（win 是 .tar.bz2 + /MT，linux 是 .zip + glibc2.17）。
+# sha256 与上游 cmake/onnxruntime-linux-x86_64-static.cmake 里的 onnxruntime_HASH 一致，
+# 上游 CMake 会在 CMAKE_BINARY_DIR 找同名文件并校验这个哈希。
+[prebuilt_deps.onnxruntime-linux-x64]
+version  = "1.24.4"
+filename = "onnxruntime-linux-x64-static_lib-1.24.4-glibc2_17.zip"
+url      = "https://github.com/csukuangfj/onnxruntime-libs/releases/download/v1.24.4/onnxruntime-linux-x64-static_lib-1.24.4-glibc2_17.zip"
+sha256   = "4244051e004612f5e83a41d02c22c23ad5b2e97eab49bc83fd20832567cb9f70"

@@ -44,11 +44,17 @@ option(SHERPA_ONNX_ENABLE_TTS "Whether to build TTS related code" ON)
 | `SHERPA_ONNX_LIB_DIR` | 直接指向 lib 目录，**只检查是不是目录**，无任何清单校验 |
 | （隐式）缓存短路 | `target/sherpa-onnx-prebuilt/<归档名去扩展名>/lib/` 存在即直接返回，连归档都不用 |
 
-因此归档有两个**必须逐字符对齐**的约定：
+因此归档有两个**必须逐字符对齐**的约定（文件名按目标平台不同）：
 
-1. **归档文件名**：`sherpa-onnx-v<版本>-win-x64-static-MT-Release-lib.tar.bz2`
-   （例：`sherpa-onnx-v1.13.3-win-x64-static-MT-Release-lib.tar.bz2`）
-2. **归档内部结构**：顶层目录名 = 归档名去掉 `.tar.bz2`，其下为 `lib/*.lib`
+| 目标 | 归档文件名 | 内部结构 |
+|---|---|---|
+| win-x64 | `sherpa-onnx-v<版本>-win-x64-static-MT-Release-lib.tar.bz2` | `<顶层>/lib/*.lib` |
+| linux-x64 | `sherpa-onnx-v<版本>-linux-x64-static-lib.tar.bz2` | `<顶层>/lib/*.a` |
+
+例：`sherpa-onnx-v1.13.3-linux-x64-static-lib.tar.bz2`。
+顶层目录名恒等于归档名去掉 `.tar.bz2`。
+
+Linux 上没有 `/MT` 这段后缀 —— 那是 Windows 的静态 CRT 开关决定的。
 
 ```
 sherpa-onnx-v1.13.3-win-x64-static-MT-Release-lib/
@@ -133,6 +139,29 @@ tar -cjf sherpa-onnx-v1.13.3-win-x64-static-MT-Release-lib.tar.bz2 \
 2. `lib/` 下的文件名集合覆盖 §5.2 的 13 项；
 3. 记录 `sha256`（`certutil -hashfile <归档> SHA256`）。
 
+### 5.5 linux-x64 目标（第二目标）
+
+与 Windows 共用同一份上游源码与同一组「目的性」开关（`SHERPA_ONNX_ENABLE_TTS=OFF`、
+`BUILD_SHARED_LIBS=OFF`、`CMAKE_BUILD_TYPE=Release`），差别：
+
+- **必须在容器里编**。`.a` 里的目标文件记着 glibc 符号版本引用；在滚更发行版
+  （Arch 等）上直编会带上只有新 glibc 才有的符号（如 glibc 2.38 的
+  `__isoc23_strtol`），下游在 Ubuntu 22.04 / Debian 12 上链接就失败。
+  仓里给的构建镜像 `docker/Dockerfile.linux-x64` = ubuntu:22.04 + GCC 11.4
+  （glibc 2.35；上游 manylinux2014 用的是同代 devtoolset-11）。
+- 空库文件名是 `lib<name>.a`（Windows 是 `<name>.lib`）。
+- onnxruntime 换成 `onnxruntime-linux-x64-static_lib-1.24.4-glibc2_17.zip`。
+
+```bash
+./scripts/build-linux.sh                    # 全流程
+./scripts/build-linux.sh --skip-build       # 复用 install/lib，只重打包 + 门禁
+./scripts/link-smoke-linux.sh               # 端到端链接冒烟（按 crate 顺序链一遍再跑）
+GITHUB_TOKEN=... ./scripts/publish-linux.sh # 发布到同名 tag 的 Release
+```
+
+三条门禁与 Windows 相同，外加一条：`libespeak-ng.a` / `libpiper_phonemize.a` /
+`libucd.a` 必须是 <4 KB 的空库（真库是 80 万字节量级）。
+
 ---
 
 ## 6. 仓库结构
@@ -141,13 +170,22 @@ tar -cjf sherpa-onnx-v1.13.3-win-x64-static-MT-Release-lib.tar.bz2 \
 sherpa-onnx-prebuilt-no-tts/
 ├── README.md                  # 首行 unofficial 声明；为什么存在；怎么用；归档契约（§3）
 ├── versions.toml              # 上游版本 / 归档名 / 目标平台 / 期望库清单
-├── cmake/args.cmake           # 固定的 CMake 参数（含 -DSHERPA_ONNX_ENABLE_TTS=OFF）
+├── cmake/args.cmake           # win-x64 固定的 CMake 参数（含 -DSHERPA_ONNX_ENABLE_TTS=OFF）
+├── cmake/args-linux.cmake     # linux-x64 的对应配方
+├── docker/Dockerfile.linux-x64# linux 发布口径的构建镜像（ubuntu:22.04 + GCC 11）
 ├── scripts/
-│   ├── build.ps1              # §5 全流程：配置 → 构建 → 对齐清单 → 组装归档
+│   ├── build.ps1              # win-x64 全流程：配置 → 构建 → 对齐清单 → 组装归档
 │   ├── make-empty-lib.ps1     # 造空库（§5.2）
-│   ├── verify-archive.ps1     # §5.4 三条门禁，任一不过就非零退出
-│   └── publish.ps1            # 打 tag、上传资产、写 checksums
-├── checksums/v1.13.3.txt      # 归档名 + sha256 + 上游版本
+│   ├── verify-archive.ps1     # win 的三条门禁，任一不过就非零退出
+│   ├── publish.ps1            # win：打 tag、上传资产、写 checksums
+│   ├── common.sh              # bash 套件共用函数（TOML / 扫描器 / tar）
+│   ├── build-linux.sh         # linux 全流程（容器内编译）
+│   ├── make-empty-lib.sh      # linux 造空库（lib<name>.a）
+│   ├── verify-archive.sh      # linux 门禁 + 空库体积检查
+│   ├── link-smoke-linux.sh    # 按 crate 顺序链接 + 运行 + 扫产物
+│   └── publish-linux.sh       # linux：写 checksums、上传 Release 资产
+├── checksums/v1.13.3.txt             # win-x64 归档名 + sha256 + 上游版本
+├── checksums/v1.13.3-linux-x64.txt   # linux-x64 的同一份记录
 └── .github|.gitea/workflows/build.yml   # 可选：workflow_dispatch 手动触发
 ```
 
@@ -216,7 +254,9 @@ list = ["sherpa-onnx-c-api", "sherpa-onnx-core", "kaldi-decoder-core",
 - [ ] 按 §5.2 对齐 13 项清单，缺失项造空库
 - [ ] 按 §5.3 组装归档（目录名与文件名严格对齐）
 - [ ] 按 §5.4 过三条门禁（无 espeak 字样 / 清单覆盖 / sha256）
-- [ ] 发 Release tag `v1.13.3`，提交 `checksums/v1.13.3.txt`
+- [x] 发 Release tag `v1.13.3`，提交 `checksums/v1.13.3.txt`
+- [x] **linux-x64 目标**：容器里编 TTS-off 静态库、补 3 个空库、过门禁、链接冒烟，
+      归档挂到同一个 Release（`checksums/v1.13.3-linux-x64.txt`）
 - [ ] 本机编通后，抽 `workflow_dispatch` CI（可选）
 
 ---

@@ -104,6 +104,14 @@ ok "checksums 已写入: $checksum_path"
 note "sha256=$sha"
 note "size=$size"
 
+# Release 说明（--update-notes 用）：写在一处，gh 分支与 REST 分支共用。
+release_notes="TTS-disabled (SHERPA_ONNX_ENABLE_TTS=OFF) static libs, unofficial builds of sherpa-onnx $Tag.
+
+- win-x64:   sherpa-onnx-v$LINUX_VERSION-win-x64-static-MT-Release-lib.tar.bz2 — MSVC /MT, drop-in for the official filename.
+- linux-x64: sherpa-onnx-v$LINUX_VERSION-linux-x64-static-lib.tar.bz2 — GCC 11 (ubuntu:22.04, glibc 2.35 baseline), drop-in for the official filename.
+
+espeak-ng is NOT linked in either. sha256 in checksums/."
+
 # ---------------------------------------------------------------- git（只提交 checksum，归档不进 git）
 info "提交 checksum ..."
 if [[ -n "$(git -C "$REPO_ROOT" status --porcelain -- checksums)" ]]; then
@@ -129,12 +137,37 @@ if (( SkipUpload )); then
 fi
 
 # ---------------------------------------------------------------- Release 上传
+# 优先 gh（GitHub CLI）—— 与 publish.ps1 一致：凭证由 gh 自己管，
+# 不必把 token 摆进环境变量（也就不会进 shell history）。
+use_gh=0
+if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
+  use_gh=1
+fi
+
 token="${GITHUB_TOKEN:-${GH_TOKEN:-}}"
-if [[ -z "$token" ]]; then
-  die "没有 GITHUB_TOKEN / GH_TOKEN，无法上传。
-   手动上传这一步：
-     gh release upload $Tag \"$Archive\" \"$checksum_path\" --clobber
-   或者设好 token 后重跑本脚本。"
+if (( ! use_gh )) && [[ -z "$token" ]]; then
+  die "既没有已登录的 gh，也没有 GITHUB_TOKEN / GH_TOKEN，无法上传。
+   两条路：
+     1) 装并登录 GitHub CLI（Arch: sudo pacman -S github-cli，然后 gh auth login），重跑本脚本；
+     2) 用 token：GITHUB_TOKEN=<token> ./scripts/publish-linux.sh
+   只想在本地留档：./scripts/publish-linux.sh --skip-upload"
+fi
+
+if (( use_gh )); then
+  info "用 gh（GitHub CLI）上传归档与 checksum 到 Release $Tag ..."
+  # Release v1.13.3 已经存在（win-x64 就在同一个 tag 上）：直接加资产，不新建 tag
+  if ! gh release view "$Tag" >/dev/null 2>&1; then
+    gh release create "$Tag" --title "sherpa-onnx $Tag (TTS disabled, prebuilt)"
+  fi
+  gh release upload "$Tag" "$Archive" "$checksum_path" --clobber
+  if (( UpdateNotes )); then
+    info "刷新 Release 说明 ..."
+    gh release edit "$Tag" --notes "$release_notes"
+    ok "Release 说明已更新"
+  fi
+  printf '\n'
+  ok "发布完成: Release $Tag"
+  exit 0
 fi
 
 remote_url="$(git -C "$REPO_ROOT" remote get-url origin)"
@@ -196,15 +229,9 @@ upload_asset "$checksum_path"
 
 if (( UpdateNotes )); then
   info "刷新 Release 说明 ..."
-  notes="TTS-disabled (SHERPA_ONNX_ENABLE_TTS=OFF) static libs, unofficial builds of sherpa-onnx $Tag.
-
-- win-x64:   \`sherpa-onnx-v$LINUX_VERSION-win-x64-static-MT-Release-lib.tar.bz2\` — MSVC /MT, drop-in for the official filename.
-- linux-x64: \`sherpa-onnx-v$LINUX_VERSION-linux-x64-static-lib.tar.bz2\` — GCC, manylinux2014 (glibc 2.17) baseline, drop-in for the official filename.
-
-espeak-ng is NOT linked in either. sha256 in \`checksums/\`."
   gh_api PATCH "$api/releases/$release_id" \
     -H 'Content-Type: application/json' \
-    -d "$(python3 -c 'import json,sys; print(json.dumps({"body": sys.argv[1]}))' "$notes")" >/dev/null
+    -d "$(python3 -c 'import json,sys; print(json.dumps({"body": sys.argv[1]}))' "$release_notes")" >/dev/null
   ok "Release 说明已更新"
 fi
 

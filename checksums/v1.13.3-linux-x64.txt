@@ -1,0 +1,13 @@
+# sherpa-onnx-prebuilt-no-tts
+# 这份库与 k2-fsa / 上游官方发布无隶属关系（unofficial build）。
+archive:    sherpa-onnx-v1.13.3-linux-x64-static-lib.tar.bz2
+sha256:     6172f82807ba60fcc892c9296560caa84514ad243b33be60ea9c04eac4657e17
+size:       18984422
+upstream:   v1.13.3 (330609dab49be6ee8b30702918ca7abbbad1286a)
+variant:    TTS disabled, SHERPA_ONNX_ENABLE_TTS=OFF
+toolchain:  gcc (Ubuntu 11.4.0-1ubuntu1~22.04.3) 11.4.0; cmake version 3.22.1
+build:      static (BUILD_SHARED_LIBS=OFF), Release, linux-x64
+builder:    sherpa-onnx-prebuilt-no-tts/linux-x64-builder:ubuntu22.04
+built_on:   2026-10-01T10:08:12Z
+gate:       espeak-ng/piper 特有标记命中 0（裸子串 espeak 会误命中 OfflineSpeaker）
+gate:       13 项链接清单全覆盖；占位空库 <4 KB；文件名与顶层目录名符合 crate 契约
